@@ -1,112 +1,367 @@
 <!DOCTYPE html>
-<!DOCTYPE html>
-<html lang="id">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Warehouse Stock Scanner - FEFO System</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, Arial, sans-serif; margin: 0; padding: 12px; background: #f4f4f2; color: #222; }
+    h2 { font-size: 16px; margin: 8px 0; }
+    .card { background: #fff; border-radius: 10px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+    button { width: 100%; padding: 12px; border-radius: 8px; border: none; font-size: 15px; margin-top: 8px; cursor: pointer; }
+    .btn-primary { background: #1D9E75; color: white; }
+    .btn-secondary { background: #eee; color: #222; }
+    .btn-in { background: #378ADD; color: white; }
+    .btn-out { background: #D85A30; color: white; }
+    input, select { width: 100%; padding: 10px; margin-top: 4px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; }
+    label { font-size: 12px; color: #666; margin-top: 8px; display: block; }
+    #reader { width: 100%; border-radius: 8px; overflow: hidden; }
+    .row2 { display: flex; gap: 8px; }
+    .row2 > div { flex: 1; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; background: #FAEEDA; color: #854F0B; margin-right: 6px; }
+    .badge-wh { background: #DCEBFC; color: #1C5AA6; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+    th, td { text-align: left; padding: 5px 4px; border-bottom: 1px solid #eee; }
+    .expiry-option { padding: 8px; border: 1px solid #ddd; border-radius: 6px; margin-top: 6px; cursor: pointer; }
+    .expiry-option.selected { border-color: #1D9E75; background: #E1F5EE; }
+    .msg { padding: 10px; border-radius: 6px; margin-top: 8px; font-size: 13px; }
+    .msg-ok { background: #EAF3DE; color: #3B6D11; }
+    .msg-err { background: #FCEBEB; color: #A32D2D; }
+    .hidden { display: none; }
+  </style>
 </head>
-<body class="bg-gray-100 min-h-screen p-4">
-  <div class="max-w-2xl mx-auto bg-white rounded-lg shadow-md p-6">
-    <h1 class="text-2xl font-bold text-gray-800 mb-4 text-center">Warehouse QR & FEFO System</h1>
-    
-    <!-- Form Input / Scan -->
-    <div class="space-y-4">
-      <div>
-        <label class="block text-sm font-medium text-gray-700">Warehouse Code (WH)</label>
-        <input type="text" id="whCode" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2" placeholder="Contoh: WH-01">
-      </div>
-      <div>
-        <label class="block text-sm font-medium text-gray-700">Code Number / QR Item</label>
-        <input type="text" id="codeNumber" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2" placeholder="Scan atau ketik kode barang...">
-      </div>
-      <button onclick="handleLookup()" class="w-full bg-blue-600 text-white p-2 rounded-md font-semibold hover:bg-blue-700">Cek Barang / Stock</button>
+<body>
+
+  <div id="expiryBanner" class="card hidden" style="background:#FFF4E5;border:1px solid #F0B429">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="color:#854F0B;margin:0">⚠️ Barang mendekati expired</h2>
+      <button style="width:auto;padding:6px 10px;background:transparent;color:#854F0B;font-size:18px;margin:0" onclick="document.getElementById('expiryBanner').classList.add('hidden')">✕</button>
+    </div>
+    <p style="font-size:12px;color:#854F0B;margin:6px 0">Expired dalam 50 hari ke depan:</p>
+    <div id="expiryBannerList" style="max-height:260px;overflow-y:auto"></div>
+  </div>
+
+  <div class="card">
+    <h2>Scan QR</h2>
+    <div id="reader"></div>
+    <button class="btn-secondary" onclick="restartScanner()">Scan ulang</button>
+    <label>Atau cari manual</label>
+    <input id="manualWh" placeholder="WH Code, misal WH1">
+    <input id="manualCode" placeholder="Code number, misal RM-2200-118" style="margin-top:6px">
+    <button class="btn-secondary" onclick="lookupManual()">Cari</button>
+    <p style="font-size:12px;color:#888;text-align:center;margin-top:10px;margin-bottom:0">*tunggu 2-3 detik setelah scan atau melakukan pencarian</p>
+  </div>
+
+  <div id="ambiguousCard" class="card hidden">
+    <h2 id="ambigName">-</h2>
+    <div class="badge" id="ambigCode">-</div>
+    <p style="font-size:13px;color:#666;margin-top:10px">Code number ini ada di beberapa WH. Pilih salah satu:</p>
+    <div id="ambigOptions"></div>
+  </div>
+
+  <div id="itemCard" class="card hidden">
+    <h2 id="itemName">-</h2>
+    <div class="badge" id="itemCode">-</div>
+    <div class="badge badge-wh" id="itemWhBadge">-</div>
+    <table>
+      <tr><td>UOM</td><td id="itemUom">-</td></tr>
+      <tr><td>WH Code</td><td id="itemWh">-</td></tr>
+      <tr><td>Location</td><td id="itemLoc">-</td></tr>
+      <tr><td><b>Total stock</b></td><td id="itemStock">-</td></tr>
+    </table>
+    <button class="btn-secondary" onclick="showForm('location')">Ubah lokasi</button>
+
+    <div class="row2" style="margin-top:8px">
+      <button class="btn-in" onclick="showForm('receiving')">Receiving</button>
+      <button class="btn-out" onclick="showForm('issuing')">Issuing</button>
     </div>
 
-    <!-- Hasil Pencarian -->
-    <div id="resultContainer" class="mt-6 hidden border-t pt-4">
-      <h2 class="text-lg font-semibold text-gray-800 mb-2">Informasi Barang</h2>
-      <div id="itemInfo" class="bg-gray-50 p-4 rounded-md text-sm space-y-1"></div>
-      
-      <h3 class="font-semibold text-gray-700 mt-4 mb-2">Expiry Breakdown (FEFO)</h3>
-      <div id="expiryBreakdown" class="overflow-x-auto"></div>
-    </div>
+    <h2 style="margin-top:16px">Breakdown expired date</h2>
+    <div id="expiryList"></div>
+
+    <h2 style="margin-top:16px">Bin card (10 transaksi terakhir)</h2>
+    <table>
+      <thead><tr><th>Tgl</th><th>Doc</th><th>Exp</th><th>In</th><th>Out</th><th>Bal</th></tr></thead>
+      <tbody id="logBody"></tbody>
+    </table>
+  </div>
+
+  <div id="locationForm" class="card hidden">
+    <h2>Ubah lokasi</h2>
+    <label>WH Code</label><input id="locWh">
+    <label>Location</label><input id="locLocation">
+    <label>Initial store keeper</label><input id="locInitial">
+    <button class="btn-primary" onclick="submitLocation()">Simpan lokasi baru</button>
+    <button class="btn-secondary" onclick="hideForms()">Batal</button>
+    <div id="locMsg"></div>
+  </div>
+
+  <div id="receivingForm" class="card hidden">
+    <h2>Form receiving</h2>
+    <label>Tanggal</label><input type="date" id="rcvDate">
+    <label>Doc No (nomor GRN/PO manual)</label><input id="rcvDocNo">
+    <label>Expired date barang masuk (kosongkan kalau barang tidak punya expired, misal spare part)</label>
+    <input type="date" id="rcvExpDate">
+    <label>Quantity masuk</label><input type="number" id="rcvQty">
+    <label>Initial store keeper</label><input id="rcvInitial">
+    <button class="btn-primary" onclick="submitReceiving()">Simpan baris ini</button>
+    <p style="font-size:12px;color:#666;margin-top:8px">Kalau kiriman ini punya beberapa expired date berbeda (misal 600kg exp Des, 400kg exp Feb), simpan dulu baris pertama, lalu isi baris berikutnya dengan doc no yang sama.</p>
+    <button class="btn-secondary" onclick="hideForms()">Selesai / tutup</button>
+    <div id="rcvMsg"></div>
+  </div>
+
+  <div id="issuingForm" class="card hidden">
+    <h2>Form issuing</h2>
+    <p style="font-size:13px;color:#666">Pilih expired date yang mau dikeluarkan (paling atas = paling dekat expired):</p>
+    <div id="issuingExpiryOptions"></div>
+    <label>Tanggal</label><input type="date" id="isuDate">
+    <label>Doc No (nomor issuing manual)</label><input id="isuDocNo">
+    <label>Quantity keluar</label><input type="number" id="isuQty">
+    <label>User (yang mengambil barang)</label><input id="isuUser">
+    <label>Initial store keeper</label><input id="isuInitial">
+    <button class="btn-primary" onclick="submitIssuing()">Simpan issuing</button>
+    <button class="btn-secondary" onclick="hideForms()">Batal</button>
+    <div id="isuMsg"></div>
   </div>
 
   <script>
-    function handleLookup() {
-      const whCode = document.getElementById('whCode').value;
-      const codeNumber = document.getElementById('codeNumber').value;
+    // GANTI dengan URL Web App hasil deploy Anda (Deploy > Manage deployments > Web app URL)
+    const API_URL = 'https://warehouseitp.github.io/ExpiredMonitoring/';
 
-      if (!codeNumber) {
-        alert('Masukkan Code Number terlebih dahulu!');
-        return;
-      }
+    function callApi(action, payload) {
+      return fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action, payload })
+      })
+      .then(r => {
+        if (!r.ok) throw new Error('Server merespon status ' + r.status);
+        return r.json();
+      })
+      .catch(err => {
+        alert('Gagal menghubungi server. Cek koneksi internet atau API_URL di index.html.\n\nDetail: ' + err.message);
+        throw err;
+      });
+    }
 
-      // Memanggil fungsi doPost di Google Apps Script secara asynchronous
-      google.script.run
-        .withSuccessHandler(onLookupSuccess)
-        .withFailureHandler(onLookupFailure)
-        .doPost({
-          postData: {
-            contents: JSON.stringify({
-              action: 'lookupItem',
-              payload: { whCode, codeNumber }
-            })
+    let currentItem = null;
+    let selectedExpiry = null;
+    let expirySelected = false;
+    let scanner = new Html5Qrcode("reader"); // dibuat sekali saja, dipakai ulang terus (bukan bikin instance baru tiap restart)
+
+    function startScanner() {
+      scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: 220 },
+        (decodedText) => {
+          safeStopScanner();
+          // format QR baru: "WH1|61137588" - format lama (QR sudah kadung diprint): "61137588" saja
+          if (decodedText.indexOf('|') !== -1) {
+            const parts = decodedText.split('|');
+            doLookup(parts[0].trim(), parts[1].trim());
+          } else {
+            doLookup('', decodedText.trim());
           }
-        });
+        }
+      ).catch(err => console.log('Kamera tidak bisa diakses:', err));
     }
 
-    function onLookupSuccess(responseString) {
-      const res = JSON.parse(responseString);
-      const container = document.getElementById('resultContainer');
-      const infoDiv = document.getElementById('itemInfo');
-      const expiryDiv = document.getElementById('expiryBreakdown');
+    // stop() bisa gagal kalau scanner memang sudah berhenti - ditangkap supaya tidak
+    // menghentikan proses selanjutnya (ini penyebab tombol "Scan ulang" sebelumnya macet)
+    function safeStopScanner() {
+      try {
+        const state = scanner.getState ? scanner.getState() : null;
+        if (state === Html5QrcodeScannerState.SCANNING || state === Html5QrcodeScannerState.PAUSED) {
+          return scanner.stop().catch(() => {});
+        }
+      } catch (e) { /* diamkan, scanner memang belum/tidak jalan */ }
+      return Promise.resolve();
+    }
 
-      container.classList.remove('hidden');
+    function restartScanner() {
+      safeStopScanner().then(() => {
+        setTimeout(startScanner, 300);
+      });
+    }
+    window.onload = function() {
+      startScanner();
+      loadExpiryBanner();
+    };
 
-      if (!res.found) {
-        infoDiv.innerHTML = `<p class="text-red-600">${res.message}</p>`;
-        expiryDiv.innerHTML = '';
+    function loadExpiryBanner() {
+      callApi('getExpiringSoon', { thresholdDays: 50 }).then(res => {
+        if (!res.success || !res.items || res.items.length === 0) return;
+        const banner = document.getElementById('expiryBanner');
+        const list = document.getElementById('expiryBannerList');
+        list.innerHTML = '';
+        res.items.forEach(r => {
+          list.innerHTML += '<div style="background:#fff;border-radius:6px;padding:8px 10px;margin-top:6px;font-size:12px">' +
+            '<b>' + r.code_number + '</b> (' + (r.nama_barang || '') + ')<br>' +
+            'WH: ' + r.wh_code + ' — Loc: ' + (r.location || '-') + ' — Qty: ' + r.qty_available + '<br>' +
+            '<span style="color:#A32D2D">Exp: ' + r.expired_date + '</span>' +
+            '</div>';
+        });
+        banner.classList.remove('hidden');
+      }).catch(() => {}); // gagal load banner tidak perlu ganggu user dengan alert
+    }
+
+    function lookupManual() {
+      const wh = document.getElementById('manualWh').value.trim();
+      const code = document.getElementById('manualCode').value.trim();
+      if (code) doLookup(wh, code);
+    }
+
+    function doLookup(whCode, codeNumber, keepReceivingOpen) {
+      callApi('lookupItem', { whCode, codeNumber }).then(res => renderItem(res, keepReceivingOpen));
+    }
+
+    function renderItem(res, keepReceivingOpen) {
+      document.getElementById('ambiguousCard').classList.add('hidden');
+      document.getElementById('itemCard').classList.add('hidden');
+      if (!keepReceivingOpen) hideForms();
+
+      if (!res.found) { alert(res.message); return; }
+
+      if (res.ambiguous) {
+        document.getElementById('ambiguousCard').classList.remove('hidden');
+        document.getElementById('ambigName').innerText = res.nama_barang;
+        document.getElementById('ambigCode').innerText = res.code_number;
+        const optDiv = document.getElementById('ambigOptions');
+        optDiv.innerHTML = '';
+        res.options.forEach(opt => {
+          const el = document.createElement('div');
+          el.className = 'expiry-option';
+          el.innerText = 'WH: ' + opt.wh_code + ' — Location: ' + (opt.location || '-');
+          el.onclick = () => doLookup(opt.wh_code, res.code_number);
+          optDiv.appendChild(el);
+        });
         return;
       }
 
-      infoDiv.innerHTML = `
-        <p><strong>Nama Barang:</strong> ${res.nama_barang}</p>
-        <p><strong>Kategori:</strong> ${res.kategori} | <strong>UOM:</strong> ${res.uom}</p>
-        <p><strong>Lokasi:</strong> ${res.wh_code} - ${res.location}</p>
-        <p><strong>Total Stock:</strong> <span class="text-lg font-bold text-blue-600">${res.total_stock}</span></p>
-      `;
+      currentItem = res;
+      document.getElementById('itemCard').classList.remove('hidden');
+      document.getElementById('itemName').innerText = res.nama_barang;
+      document.getElementById('itemCode').innerText = res.code_number;
+      document.getElementById('itemWhBadge').innerText = 'WH: ' + res.wh_code;
+      document.getElementById('itemUom').innerText = res.uom;
+      document.getElementById('itemWh').innerText = res.wh_code || '-';
+      document.getElementById('itemLoc').innerText = res.location || '-';
+      document.getElementById('itemStock').innerText = res.total_stock + ' ' + res.uom;
 
-      let htmlTable = `
-        <table class="min-w-full divide-y divide-gray-200 text-sm">
-          <thead>
-            <tr>
-              <th class="px-2 py-1 text-left font-medium text-gray-500">Expired Date</th>
-              <th class="px-2 py-1 text-left font-medium text-gray-500">Qty Available</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-200">
-      `;
-
-      if (res.expiry_breakdown && res.expiry_breakdown.length > 0) {
-        res.expiry_breakdown.forEach(row => {
-          htmlTable += `<tr>
-            <td class="px-2 py-1">${row.expired_date || 'Tanpa Expired'}</td>
-            <td class="px-2 py-1 font-semibold">${row.qty_available}</td>
-          </tr>`;
-        });
-      } else {
-        htmlTable += `<tr><td colspan="2" class="px-2 py-1 text-gray-500 text-center">Tidak ada data stock aktif</td></tr>`;
+      const expiryDiv = document.getElementById('expiryList');
+      expiryDiv.innerHTML = '';
+      if (res.expiry_breakdown.length === 0) {
+        expiryDiv.innerHTML = '<p style="font-size:13px;color:#999">Tidak ada stock aktif.</p>';
       }
+      res.expiry_breakdown.forEach(r => {
+        const expLabel = r.expired_date ? ('Exp: <b>' + r.expired_date + '</b>') : '<i>Tidak ada expired date</i>';
+        expiryDiv.innerHTML += '<div class="expiry-option">' + expLabel + ' — Qty: ' + r.qty_available + '</div>';
+      });
 
-      htmlTable += `</tbody></table>`;
-      expiryDiv.innerHTML = htmlTable;
+      const logBody = document.getElementById('logBody');
+      logBody.innerHTML = '';
+      res.recent_log.forEach(l => {
+        logBody.innerHTML += '<tr><td>' + l.date + '</td><td>' + l.doc_no + '</td><td>' + (l.expired_date||'') +
+          '</td><td>' + (l.in_qty||'') + '</td><td>' + (l.out_qty||'') + '</td><td>' + l.balance_qty + '</td></tr>';
+      });
+      if (keepReceivingOpen) {
+        document.getElementById('receivingForm').classList.remove('hidden');
+      }
     }
 
-    function onLookupFailure(error) {
-      alert('Terjadi kesalahan koneksi: ' + error.message);
+    function showForm(type) {
+      hideForms();
+      if (type === 'location') {
+        document.getElementById('locationForm').classList.remove('hidden');
+        document.getElementById('locWh').value = currentItem.wh_code || '';
+        document.getElementById('locLocation').value = currentItem.location || '';
+      } else if (type === 'receiving') {
+        document.getElementById('receivingForm').classList.remove('hidden');
+        document.getElementById('rcvDate').value = new Date().toISOString().slice(0,10);
+      } else {
+        document.getElementById('issuingForm').classList.remove('hidden');
+        document.getElementById('isuDate').value = new Date().toISOString().slice(0,10);
+        const optDiv = document.getElementById('issuingExpiryOptions');
+        optDiv.innerHTML = '';
+        selectedExpiry = null;
+        expirySelected = false;
+        currentItem.expiry_breakdown.forEach((r, idx) => {
+          const el = document.createElement('div');
+          el.className = 'expiry-option';
+          const expLabel = r.expired_date ? ('Exp: ' + r.expired_date) : 'Tidak ada expired date';
+          el.innerText = expLabel + ' — Qty tersedia: ' + r.qty_available;
+          el.onclick = () => {
+            document.querySelectorAll('.expiry-option').forEach(e => e.classList.remove('selected'));
+            el.classList.add('selected');
+            selectedExpiry = r.expired_date;
+            expirySelected = true;
+          };
+          optDiv.appendChild(el);
+        });
+      }
+    }
+    function hideForms() {
+      document.getElementById('receivingForm').classList.add('hidden');
+      document.getElementById('issuingForm').classList.add('hidden');
+      document.getElementById('locationForm').classList.add('hidden');
+    }
+
+    function submitLocation() {
+      const payload = {
+        whCode: currentItem.wh_code,
+        codeNumber: currentItem.code_number,
+        newWhCode: document.getElementById('locWh').value,
+        newLocation: document.getElementById('locLocation').value,
+        initial: document.getElementById('locInitial').value
+      };
+      callApi('updateLocation', payload).then(res => {
+        const msg = document.getElementById('locMsg');
+        msg.className = 'msg ' + (res.success ? 'msg-ok' : 'msg-err');
+        msg.innerText = res.message;
+        if (res.success) setTimeout(() => doLookup(payload.newWhCode || currentItem.wh_code, currentItem.code_number), 800);
+      });
+    }
+
+    function submitReceiving() {
+      const payload = {
+        whCode: currentItem.wh_code,
+        codeNumber: currentItem.code_number,
+        date: document.getElementById('rcvDate').value,
+        docNo: document.getElementById('rcvDocNo').value,
+        expiredDate: document.getElementById('rcvExpDate').value,
+        inQty: document.getElementById('rcvQty').value,
+        initial: document.getElementById('rcvInitial').value
+      };
+      callApi('receiveStock', payload).then(res => {
+        const msg = document.getElementById('rcvMsg');
+        msg.className = 'msg ' + (res.success ? 'msg-ok' : 'msg-err');
+        msg.innerText = res.message;
+        if (res.success) {
+          document.getElementById('rcvExpDate').value = '';
+          document.getElementById('rcvQty').value = '';
+          doLookup(currentItem.wh_code, currentItem.code_number, true);
+        }
+      });
+    }
+
+    function submitIssuing() {
+      if (!expirySelected) { alert('Pilih salah satu baris expired date dulu.'); return; }
+      const payload = {
+        whCode: currentItem.wh_code,
+        codeNumber: currentItem.code_number,
+        date: document.getElementById('isuDate').value,
+        docNo: document.getElementById('isuDocNo').value,
+        expiredDate: selectedExpiry,
+        outQty: document.getElementById('isuQty').value,
+        user: document.getElementById('isuUser').value,
+        initial: document.getElementById('isuInitial').value
+      };
+      callApi('issueStock', payload).then(res => {
+        const msg = document.getElementById('isuMsg');
+        msg.className = 'msg ' + (res.success ? 'msg-ok' : 'msg-err');
+        msg.innerText = res.message;
+        if (res.success) setTimeout(() => doLookup(currentItem.wh_code, currentItem.code_number), 800);
+      });
     }
   </script>
 </body>
