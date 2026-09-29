@@ -116,7 +116,7 @@
 
   <script>
     // GANTI dengan URL Web App hasil deploy Anda (Deploy > Manage deployments > Web app URL)
-    const API_URL = 'https://script.google.com/macros/s/AKfycbxzEqd-sxc6Wa5VIZLLRF1q0uFiFN6WxEof4WO7kaUDd9iTnwQDrrwQDiad8IPg1XQB/exec
+    const API_URL = 'https://warehouseitp.github.io/ExpiredMonitoring/
 ';
 
     function callApi(action, payload) {
